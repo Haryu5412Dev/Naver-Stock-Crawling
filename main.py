@@ -5,19 +5,20 @@ import tkinter as tk
 from tkinter import ttk
 import pandas as pd
 import json
-from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
+from io import StringIO
+import time
 import matplotlib.pyplot as plt
+
+plt.rcParams['font.family'] = 'Malgun Gothic' 
 
 # JSON 데이터 저장 함수
 def save_to_json(dataframe, filename):
     dataframe.to_json(filename, orient="records", force_ascii=False, indent=4)
 
-# 데이터 수집 및 JSON 저장 (사용자의 원래 코드를 기반으로 처리)
+# 데이터 수집 및 JSON 저장 (일별 시세 중심)
 def fetch_stock_data():
-    import requests
-    from bs4 import BeautifulSoup
-    from io import StringIO
-    import time
 
     code = input('종목 코드를 입력하세요: ')
 
@@ -53,30 +54,32 @@ def fetch_stock_data():
                 print(f"{page}번의 페이지를 불러오는데 에러가 발생했습니다")
             time.sleep(1)
 
-        # 불필요한 행 제거
+        # 불필요한 행 제거 및 날짜 처리
         df.dropna(inplace=True)
         df.reset_index(drop=True, inplace=True)
 
-        # 날짜 필터링
-        current_month = datetime.now().strftime('%Y.%m')  # 현재 연도와 월 (예: '2024.11')
-        df['날짜'] = pd.to_datetime(df['날짜'], format='%Y.%m.%d')  # 날짜를 datetime 형식으로 변환
-        df = df[df['날짜'].dt.strftime('%Y.%m') == current_month]  # 현재 월만 필터링
+        # 날짜, 종가, 저가, 고가만 추출
+        df = df[['날짜', '종가', '저가', '고가']]
+
+        # 날짜를 'YYYY-MM-DD' 형식으로 변환
+        df['날짜'] = pd.to_datetime(df['날짜'], format='%Y.%m.%d', errors='coerce')
+        df['날짜'] = df['날짜'].dt.strftime('%Y-%m-%d')
+
+        # 날짜를 기준으로 정렬
+        df = df.dropna(subset=['날짜']).sort_values(by='날짜', ascending=False)
+
+        # 출력 확인 (테스트용)
+        print(df[['날짜', '종가', '저가', '고가']])
 
         # JSON 저장
-        save_to_json(df, "stock_data.json")
-        print("데이터가 'stock_data.json' 파일에 저장되었습니다.")
+        save_to_json(df, "data/stock_data_daily.json")
+        print("데이터가 'stock_data_daily.json' 파일에 저장되었습니다.")
 
     except Exception as e:
         print(f"실행 에러: {e}")
 
-# UI 생성 함수 - 그래프 표시
+# UI 생성 함수 - 표로 표시 (일별 시세)
 def create_ui_from_json(filename):
-    import matplotlib.font_manager as fm
-
-    # 한글 폰트 설정
-    plt.rcParams['font.family'] = 'Malgun Gothic'
-    plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
-
     # JSON 데이터 읽기
     try:
         with open(filename, "r", encoding="utf-8") as f:
@@ -89,28 +92,71 @@ def create_ui_from_json(filename):
     dataframe = pd.DataFrame(data)
 
     # 날짜와 종가 데이터만 추출
-    dataframe['날짜'] = pd.to_datetime(dataframe['날짜'])
+    dataframe['날짜'] = pd.to_datetime(dataframe['날짜'], errors='coerce')
+    dataframe = dataframe.dropna(subset=['날짜'])  # 날짜 변환 실패한 데이터 제거
     dataframe.sort_values(by='날짜', inplace=True)
-    dates = dataframe['날짜']
-    closing_prices = dataframe['종가'].astype(float) * 10  # 단위를 원으로 변경
 
-    # 그래프 그리기
-    plt.figure(figsize=(10, 5))
-    plt.plot(dates, closing_prices, marker='o', linestyle='-', color='b', label='종가 (원)')
-    plt.title("주식 종가 추이", fontsize=16)
-    plt.xlabel("날짜", fontsize=12)
-    plt.ylabel("종가 (원)", fontsize=12)
-    plt.grid(True, linestyle='--', alpha=0.6)
+    # 지난 4일 동안의 데이터만 추출
+    recent_days = dataframe.tail(4).copy()
+
+    # 날짜 형식을 "YYYY-MM-DD"로 지정
+    recent_days['날짜'] = recent_days['날짜'].dt.strftime('%Y-%m-%d')
+
+    # UI 생성
+    root = tk.Tk()
+    root.title("주식 일별 시세 표")
+
+    # 테이블 생성
+    tree = ttk.Treeview(root, columns=('날짜', '종가', '저가', '고가'), show='headings')
+    tree.heading('날짜', text='날짜')
+    tree.heading('종가', text='종가')
+    tree.heading('저가', text='저가')
+    tree.heading('고가', text='고가')
+
+    # 데이터 삽입
+    for index, row in recent_days.iterrows():
+        tree.insert('', 'end', values=(row['날짜'], row['종가'], row['저가'], row['고가']))
+
+    tree.pack(expand=True, fill=tk.BOTH)
+
+    # 그래프 표시
+    plot_graph(recent_days)
+
+    # 창 크기 조정
+    root.geometry("800x600")
+    root.mainloop()
+
+# 주식 가격을 꺾은선 그래프로 표시
+def plot_graph(dataframe):
+    plt.figure(figsize=(10, 6))
+
+    # 날짜와 종가, 저가, 고가를 꺾은선 그래프로 그리기
+    plt.plot(dataframe['날짜'], dataframe['종가'], label='종가', marker='o', color='blue')
+    plt.plot(dataframe['날짜'], dataframe['저가'], label='저가', marker='o', color='red')
+    plt.plot(dataframe['날짜'], dataframe['고가'], label='고가', marker='o', color='green')
+
+    # 제목과 레이블 추가
+    plt.title("최근 4일 주식 가격")
+    plt.xlabel("날짜")
+    plt.ylabel("가격")
+
+    # X축 날짜 포맷 설정
+    plt.xticks(rotation=45)
+
+    # 범례 추가
     plt.legend()
+
+    # 그래프 출력
     plt.tight_layout()
     plt.show()
 
 # 데이터 수집 및 UI 실행
 if __name__ == "__main__":
-    fetch_or_display = input("데이터를 수집하려면 'fetch', 그래프를 보려면 'display'를 입력하세요: ").strip().lower()
+    fetch_or_display = input("데이터를 수집하려면 'fetch', 표를 보려면 'display'를 입력하세요: ").strip().lower()
     if fetch_or_display == "fetch":
         fetch_stock_data()
     elif fetch_or_display == "display":
-        create_ui_from_json("stock_data.json")
+        create_ui_from_json("data/stock_data_daily.json")
     else:
         print("올바른 입력값이 아닙니다. 'fetch' 또는 'display'를 입력해주세요.")
+
