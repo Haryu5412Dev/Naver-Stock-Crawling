@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 plt.rcParams['font.family'] = 'Malgun Gothic' 
 
-# JSON 데이터 저장 함수
+# JSON 데이터 저장
 def save_to_json(dataframe, filename):
     dataframe.to_json(filename, orient="records", force_ascii=False, indent=4)
 
@@ -68,8 +68,12 @@ def fetch_stock_data():
         # 날짜를 기준으로 정렬
         df = df.dropna(subset=['날짜']).sort_values(by='날짜', ascending=False)
 
+        # 크롤링한 일 수 계산
+        days_crawled = df['날짜'].nunique()
+        print(f"총 {days_crawled}일 동안의 데이터를 크롤링했습니다.")
+
         # 출력 확인 (테스트용)
-        print(df[['날짜', '종가', '저가', '고가']])
+        # print(df[['날짜', '종가', '저가', '고가']])
 
         # JSON 저장
         save_to_json(df, "data/stock_data_daily.json")
@@ -78,8 +82,7 @@ def fetch_stock_data():
     except Exception as e:
         print(f"실행 에러: {e}")
 
-# UI 생성 함수 - 표로 표시 (일별 시세)
-def create_ui_from_json(filename):
+def create_ui_from_json(filename, days):
     # JSON 데이터 읽기
     try:
         with open(filename, "r", encoding="utf-8") as f:
@@ -96,8 +99,8 @@ def create_ui_from_json(filename):
     dataframe = dataframe.dropna(subset=['날짜'])  # 날짜 변환 실패한 데이터 제거
     dataframe.sort_values(by='날짜', inplace=True)
 
-    # 지난 4일 동안의 데이터만 추출
-    recent_days = dataframe.tail(4).copy()
+    # 지정된 일 동안의 데이터만 추출
+    recent_days = dataframe.tail(days).copy()
 
     # 날짜 형식을 "YYYY-MM-DD"로 지정
     recent_days['날짜'] = recent_days['날짜'].dt.strftime('%Y-%m-%d')
@@ -136,7 +139,7 @@ def plot_graph(dataframe):
     plt.plot(dataframe['날짜'], dataframe['고가'], label='고가', marker='o', color='green')
 
     # 제목과 레이블 추가
-    plt.title("최근 4일 주식 가격")
+    plt.title("최근 주식 가격")
     plt.xlabel("날짜")
     plt.ylabel("가격")
 
@@ -150,13 +153,15 @@ def plot_graph(dataframe):
     plt.tight_layout()
     plt.show()
 
-# 데이터 수집 및 UI 실행
 if __name__ == "__main__":
     fetch_or_display = input("데이터를 수집하려면 'fetch', 표를 보려면 'display'를 입력하세요: ").strip().lower()
     if fetch_or_display == "fetch":
         fetch_stock_data()
     elif fetch_or_display == "display":
-        create_ui_from_json("data/stock_data_daily.json")
+        try:
+            days = int(input("최근 몇 일 동안의 데이터를 보시겠습니까? "))
+            create_ui_from_json("data/stock_data_daily.json", days)
+        except ValueError:
+            print("올바른 숫자를 입력해주세요.")
     else:
         print("올바른 입력값이 아닙니다. 'fetch' 또는 'display'를 입력해주세요.")
-
