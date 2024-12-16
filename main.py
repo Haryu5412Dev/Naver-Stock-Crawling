@@ -126,7 +126,7 @@ def create_ui_from_json(filename, days):
     plot_graph(recent_days)
 
     # 창 크기 조정
-    root.geometry("800x600")
+    root.geometry("1280x720")
     root.mainloop()
 
 # 주식 가격을 꺾은선 그래프로 표시
